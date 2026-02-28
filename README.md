@@ -178,9 +178,10 @@ Once running, open your browser:
 | **API ReDoc** | http://localhost:8000/redoc |
 
 ### Default Admin Credentials
-- **Username**: `admin`
-- **Password**: `admin` (change immediately after first login!)
-- **Note**: Password is hashed with PBKDF2-SHA256 in `configs/global_settings.json`
+- **Username**: (not used)
+- **Password**: `1`
+- ⚠️ **IMPORTANT**: Change this password immediately after first login for security!
+- Edit password in `configs/global_settings.json` (plain text or PBKDF2 hashed)
 
 ---
 
