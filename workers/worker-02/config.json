@@ -1,0 +1,36 @@
+{
+  "line_name": "worker-02",
+  "project_name": "Line13_Misscut",
+  "enabled": true,
+  "camera_type": "webcam",
+  "camera_ip": "1",
+  "pfs_file": "camera.pfs",
+  "reject_pulse_count": 1,
+  "detector_type": "yolo",
+  "detector_config": null,
+  "active_product": "Default",
+  "products": {
+    "Default": {
+      "rotation": "NONE",
+      "crop_region": null,
+      "model_path": "./weights/best.pt",
+      "class_thresholds": {
+        "AI": 0.8
+      },
+      "save_thresholds": {
+        "AI": 0.6
+      },
+      "device": "cpu",
+      "reject_delay_frames": 30,
+      "reject_positions": 3,
+      "time_valve_on": 0.1,
+      "pre_valve_delay": 0.25,
+      "save_root": "./data",
+      "retention_days": 180,
+      "max_preview": 50,
+      "save_normal": false,
+      "detector_type": "yolo",
+      "detector_config": null
+    }
+  }
+}

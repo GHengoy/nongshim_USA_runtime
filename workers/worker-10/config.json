@@ -1,0 +1,27 @@
+{
+  "line_name": "Worker 10",
+  "enabled": false,
+  "camera_type": "webcam",
+  "camera_ip": "0",
+  "pfs_file": "camera.pfs",
+  "active_product": "Default",
+  "products": {
+    "Default": {
+      "rotation": "NONE",
+      "crop_region": null,
+      "model_path": "./weights/best.pt",
+      "class_thresholds": null,
+      "save_thresholds": null,
+      "device": "cuda",
+      "reject_delay_frames": 10,
+      "reject_positions": 1,
+      "time_valve_on": 0.1,
+      "pre_valve_delay": 0.25,
+      "save_root": "./data",
+      "retention_days": 180,
+      "max_preview": 50,
+      "save_normal": false
+    }
+  },
+  "detector_type": "yolo"
+}

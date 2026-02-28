@@ -39,5 +39,5 @@ plan.md
 .env.local
 
 # Runtime configurations (auto-generated per deployment)
-workers/*/config.json
+# Note: workers/*/config.json and configs/lines.json are now tracked
 configs/lines.json
