@@ -37,3 +37,7 @@ plan.md
 # Secrets and local configuration
 .env
 .env.local
+
+# Runtime configurations (auto-generated per deployment)
+workers/*/config.json
+configs/lines.json
