@@ -11,7 +11,7 @@
     "s3_cleanup_interval_hours": 6
   },
   "admin": {
-    "password": "pbkdf2:sha256:924d9678ca27ca81058d07c295fb1bce:4e74be82299bd8aff83edd2d686bce6f995b43a84eb679094c926b76e857e8c9"
+    "password": "pbkdf2:sha256:90f229d3014152cf007980b8505529a0:1f46fe090eed50bbb94e538754f9593752920880a4b80ad8f623691b2d09ca0f"
   },
   "layout": {
     "0": {
