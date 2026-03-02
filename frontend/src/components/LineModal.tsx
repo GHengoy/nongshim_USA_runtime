@@ -3,6 +3,21 @@ import { X, Save, Upload, Wifi, Monitor, RefreshCw, Check } from 'lucide-react'
 import { InspectionLine, InspectionConfig, ProductConfig, RotationType, DeviceType, CameraType, DetectorType } from '../types'
 import * as api from '../api'
 
+// ── 정규식 ↔ 화면 표시 변환 ───────────────────────────────────────────────
+/** 파일 형식 (정규식): "2011\\.11\\.11" → 화면 표시: "2011.11.11" */
+const displayFormat = (regexStr: string): string => {
+  if (!regexStr) return ''
+  // \\ 을 . 로 변환 (마크다운 이스케이프 표시 제거)
+  return regexStr.replace(/\\\./g, '.')
+}
+
+/** 화면 표시: "2011.11.11" → 파일 형식 (정규식): "2011\\.11\\.11" */
+const regexFormat = (displayStr: string): string => {
+  if (!displayStr) return ''
+  // . 을 \\ 로 변환 (마크다운 이스케이프 추가)
+  return displayStr.replace(/\./g, '\\.')
+}
+
 export const defaultConfig: InspectionConfig = {
   line_name: '',
   project_name: '',
@@ -945,9 +960,9 @@ export default function LineModal({
                   <label className="block">
                     <span className="text-xs text-gray-400 mb-1 block">Change Date Pattern</span>
                     <input
-                      value={cfg.detector_config?.change_date ?? ''}
-                      onChange={e => setDetectorConfig('change_date', e.target.value)}
-                      placeholder="Regex pattern (e.g. 2026\\.02\\.\\d{2})"
+                      value={displayFormat(cfg.detector_config?.change_date ?? '')}
+                      onChange={e => setDetectorConfig('change_date', regexFormat(e.target.value))}
+                      placeholder="e.g. 2011.11.11"
                       className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-blue-500"
                     />
                   </label>
