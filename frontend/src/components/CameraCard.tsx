@@ -45,6 +45,7 @@ export default function CameraCard({ line, onToggle, onSettings, onSwitchProduct
   const [imgSrc, setImgSrc] = useState<string | null>(null)
   const [wsConnected, setWsConnected] = useState(false)
   const [reconnectTick, setReconnectTick] = useState(0)
+  const [isVisible, setIsVisible] = useState(true) // Intersection Observer로 관리
   // WebSocket으로 수신한 최신 window 상태 (프레임마다 업데이트)
   const [rejectMeta, setRejectMeta] = useState<RejectMeta>({
     reject_window_size: stats.reject_window_size ?? 0,
@@ -72,6 +73,25 @@ export default function CameraCard({ line, onToggle, onSettings, onSwitchProduct
     if (isActive) setShowProductDropdown(false)
   }, [isActive])
 
+  // Intersection Observer: 화면에 보이는 카메라만 스트리밍
+  // (스크롤할 때 보이지 않는 카메라의 WebSocket을 종료해 대역폭 절약)
+  useEffect(() => {
+    if (!cardRef.current) return
+
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        setIsVisible(entry.isIntersecting)
+      },
+      { threshold: 0.1 } // 카드의 10% 이상이 보이면 visible
+    )
+
+    observer.observe(cardRef.current)
+
+    return () => {
+      observer.disconnect()
+    }
+  }, [])
+
   // config 갱신 시 로컬 임계값 동기화 (실제 변경이 있을 때만)
   useEffect(() => {
     const src = config.products?.[config.active_product ?? '']?.class_thresholds
@@ -84,13 +104,30 @@ export default function CameraCard({ line, onToggle, onSettings, onSwitchProduct
     }
   }, [config.active_product, config.products, config.class_thresholds, localThresholds])
 
+  // OCR 설정 동기화 (detector_config가 변경될 때만)
+  useEffect(() => {
+    const newOcrConfig = activeProductConfig?.detector_config ?? config.detector_config ?? {}
+    if (JSON.stringify(newOcrConfig) !== JSON.stringify(ocrConfig)) {
+      setOcrConfig(newOcrConfig)
+    }
+  }, [config.active_product, config.products, config.detector_config, activeProductConfig])
+
+  // Change Date 표시 동기화 (ocrConfig.change_date가 변경될 때)
+  useEffect(() => {
+    const newDisplayFormat = displayFormat(ocrConfig.change_date ?? '')
+    if (newDisplayFormat !== editingChangeDate) {
+      setEditingChangeDate(newDisplayFormat)
+    }
+  }, [ocrConfig.change_date])
+
   const urlRef = useRef<string | null>(null)
   const wsRef = useRef<WebSocket | null>(null)
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const cardRef = useRef<HTMLDivElement | null>(null)
 
   useEffect(() => {
-    // 정지/에러 상태면 스트림 정리
-    if (!isActive) {
+    // 정지/에러 상태이거나 화면에 안 보이면 스트림 정리
+    if (!isActive || !isVisible) {
       if (reconnectTimerRef.current) {
         clearTimeout(reconnectTimerRef.current)
         reconnectTimerRef.current = null
@@ -152,7 +189,7 @@ export default function CameraCard({ line, onToggle, onSettings, onSwitchProduct
       wsRef.current = null
       setWsConnected(false)
     }
-  }, [isActive, config.line_name, reconnectTick])
+  }, [isActive, isVisible, config.line_name, reconnectTick])
 
   const { reject_window_size: winSize, reject_window_marks: winMarks } = rejectMeta
   const isRejectActive = winMarks && winMarks.length > 0
@@ -183,6 +220,7 @@ export default function CameraCard({ line, onToggle, onSettings, onSwitchProduct
 
   return (
     <div
+      ref={cardRef}
       className={`h-full flex flex-col border rounded-xl overflow-hidden transition-colors ${borderColor}`}
       style={{ backgroundColor: 'rgba(44,49,58,1.0)', backdropFilter: 'blur(12px)' }}
     >
