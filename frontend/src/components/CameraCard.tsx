@@ -470,7 +470,16 @@ export default function CameraCard({ line, onToggle, onSettings, onSwitchProduct
                       if (e.key === 'Enter') {
                         // 입력값을 정규식 형식으로 변환해서 저장
                         const regexValue = regexFormat(editingChangeDate)
-                        setOcrConfig(prev => ({ ...prev, change_date: regexValue }))
+                        const newOcrConfig = { ...ocrConfig, change_date: regexValue }
+                        setOcrConfig(newOcrConfig)
+                        // 즉시 백엔드에 저장
+                        if (config.active_product) {
+                          onUpdateDetectorConfig?.(
+                            config.line_name,
+                            config.active_product,
+                            newOcrConfig
+                          )
+                        }
                         e.currentTarget.blur()
                       }
                     }}
@@ -478,7 +487,16 @@ export default function CameraCard({ line, onToggle, onSettings, onSwitchProduct
                       // 입력값을 정규식 형식으로 변환해서 저장
                       const regexValue = regexFormat(editingChangeDate)
                       if (regexValue !== ocrConfig.change_date) {
-                        setOcrConfig(prev => ({ ...prev, change_date: regexValue }))
+                        const newOcrConfig = { ...ocrConfig, change_date: regexValue }
+                        setOcrConfig(newOcrConfig)
+                        // 즉시 백엔드에 저장
+                        if (config.active_product) {
+                          onUpdateDetectorConfig?.(
+                            config.line_name,
+                            config.active_product,
+                            newOcrConfig
+                          )
+                        }
                       }
                     }}
                     placeholder="e.g., 2026.02.28"
