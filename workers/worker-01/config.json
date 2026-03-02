@@ -26,7 +26,7 @@
       "detector_type": "paddleocr",
       "detector_config": {
         "lang": "en",
-        "change_date": "2011\\.11\\.10",
+        "change_date": "2011\\.11\\.33",
         "class_name": "date_check",
         "use_gpu": true,
         "use_angle_cls": false,

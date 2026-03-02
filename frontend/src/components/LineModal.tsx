@@ -131,35 +131,45 @@ export default function LineModal({
     }
   }
 
-  // line prop 변경 시 cfg 동기화 (임계값 변경 후 설정 모달 열 때)
+  // 모달 열릴 때 백엔드에서 최신 데이터 가져오기
   useEffect(() => {
-    if (line?.config) {
-      setCfg(line.config)
-      setThresholds(Object.entries(line.config.class_thresholds ?? { defect: 0.70 }))
-      setSaveThresholds(Object.entries(line.config.save_thresholds ?? {}))
-      setCropEnabled(line.config.crop_region !== null)
-      setCropVals(line.config.crop_region ?? [0, 0, 1920, 1080])
-      setActiveProduct(line.config.active_product ?? 'Default')
-      // products 재초기화
-      if (line.config.products && Object.keys(line.config.products).length > 0) {
-        setProducts(line.config.products)
-      } else {
-        setProducts({
-          Default: {
-            rotation: line.config.rotation, crop_region: line.config.crop_region,
-            model_path: line.config.model_path, class_thresholds: line.config.class_thresholds,
-            save_thresholds: line.config.save_thresholds, device: line.config.device,
-            reject_delay_frames: line.config.reject_delay_frames, reject_positions: line.config.reject_positions,
-            time_valve_on: line.config.time_valve_on, pre_valve_delay: line.config.pre_valve_delay,
-            save_root: line.config.save_root, retention_days: line.config.retention_days,
-            max_preview: line.config.max_preview, save_normal: line.config.save_normal,
-            detector_type: line.config.detector_type ?? 'yolo',
-            detector_config: line.config.detector_config ?? null,
-          },
-        })
+    if (!line?.config.line_name) return
+
+    const loadLatestConfig = async () => {
+      try {
+        const latestLine = await api.fetchLine(line.config.line_name)
+        const config = latestLine.config
+        setCfg(config)
+        setThresholds(Object.entries(config.class_thresholds ?? { defect: 0.70 }))
+        setSaveThresholds(Object.entries(config.save_thresholds ?? {}))
+        setCropEnabled(config.crop_region !== null)
+        setCropVals(config.crop_region ?? [0, 0, 1920, 1080])
+        setActiveProduct(config.active_product ?? 'Default')
+        // products 재초기화
+        if (config.products && Object.keys(config.products).length > 0) {
+          setProducts(config.products)
+        } else {
+          setProducts({
+            Default: {
+              rotation: config.rotation, crop_region: config.crop_region,
+              model_path: config.model_path, class_thresholds: config.class_thresholds,
+              save_thresholds: config.save_thresholds, device: config.device,
+              reject_delay_frames: config.reject_delay_frames, reject_positions: config.reject_positions,
+              time_valve_on: config.time_valve_on, pre_valve_delay: config.pre_valve_delay,
+              save_root: config.save_root, retention_days: config.retention_days,
+              max_preview: config.max_preview, save_normal: config.save_normal,
+              detector_type: config.detector_type ?? 'yolo',
+              detector_config: config.detector_config ?? null,
+            },
+          })
+        }
+      } catch (e) {
+        console.error('Failed to fetch latest line config:', e)
       }
     }
-  }, [line?.config.line_name]) // line_name을 key로 사용해서 실제 변경만 감지
+
+    loadLatestConfig()
+  }, [line?.config.line_name]) // line_name을 key로 사용해서 모달 열릴 때만 갱신
 
   // webcam 탭으로 전환 시 상태 초기화 (자동 스캔 안 함 - 버튼 클릭 시에만)
   useEffect(() => {

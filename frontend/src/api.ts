@@ -7,6 +7,12 @@ export async function fetchLines(): Promise<InspectionLine[]> {
   return res.json()
 }
 
+export async function fetchLine(name: string): Promise<InspectionLine> {
+  const res = await fetch(`${BASE}/api/lines/${encodeURIComponent(name)}`)
+  if (!res.ok) throw new Error(`Failed to fetch line: ${name}`)
+  return res.json()
+}
+
 export async function addLine(config: InspectionConfig): Promise<void> {
   const res = await fetch(`${BASE}/api/lines`, {
     method: 'POST',
