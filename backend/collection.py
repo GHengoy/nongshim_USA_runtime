@@ -167,6 +167,29 @@ class CollectionSession:
         except Exception:
             return False
 
+    def _set_camera_trigger(self, on: bool):
+        """카메라 TriggerMode를 On/Off로 전환합니다. Grabbing 중이면 재시작."""
+        try:
+            cam = self._camera._cam
+            cameras = self._camera._cameras
+            if cam is None or cameras is None:
+                return
+            current = cam.TriggerMode.GetValue()
+            target = "On" if on else "Off"
+            if current == target:
+                return
+            # Grabbing 중이면 멈추고 → TriggerMode 변경 → 재시작
+            was_grabbing = cameras.IsGrabbing()
+            if was_grabbing:
+                cameras.StopGrabbing()
+            cam.TriggerMode.SetValue(target)
+            if was_grabbing:
+                from pypylon import pylon
+                cameras.StartGrabbing(pylon.GrabStrategy_LatestImageOnly)
+            print(f"[Collection:{self.line_name}] TriggerMode forced → {target}")
+        except Exception as e:
+            print(f"[Collection:{self.line_name}] Warning: TriggerMode change failed: {e}")
+
     def _save_image(self, image):
         """이미지를 YYYYMMDD_HHMMSS_mmm.jpg 형식으로 저장합니다."""
         now = datetime.now()
@@ -200,11 +223,13 @@ class CollectionSession:
             # 1. 카메라 초기화
             self._init_camera()
 
-            # 2. 트리거 모드 감지 (force_mode가 auto/None이면 카메라 설정으로 자동 감지)
+            # 2. 트리거 모드 감지 + 카메라 TriggerMode 실제 전환
             if self._force_mode == "trigger":
                 is_trigger = True
+                self._set_camera_trigger(True)
             elif self._force_mode == "continuous":
                 is_trigger = False
+                self._set_camera_trigger(False)
             else:
                 is_trigger = self._detect_trigger_mode()
             self._auto_save = is_trigger

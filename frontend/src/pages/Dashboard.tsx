@@ -279,9 +279,23 @@ export default function Dashboard() {
   }
 
   const handleLayoutChange = useCallback((newLayout: Layout) => {
-    const mutable = [...newLayout] as LayoutItem[]
-    setLayout(mutable)
-    saveLayoutToBackend(mutable)
+    // editMode가 아닐 때 숨겨진 아이템은 grid에서 빠져있으므로,
+    // 기존 layout에서 보이는 아이템만 업데이트하고 숨겨진 아이템은 유지
+    setLayout(prev => {
+      const updated = [...prev]
+      for (const item of newLayout as LayoutItem[]) {
+        const idx = updated.findIndex(p => p.i === item.i)
+        if (idx >= 0) {
+          updated[idx] = {
+            ...item,
+            w: Math.max(item.w ?? 4, 3),
+            h: Math.max(item.h ?? 4, 3),
+          }
+        }
+      }
+      saveLayoutToBackend(updated)
+      return updated
+    })
   }, [saveLayoutToBackend])
 
   const handleResetLayout = () => {
@@ -492,7 +506,7 @@ export default function Dashboard() {
       <div ref={containerRef}>
         <ReactGridLayout
           className="layout"
-          layout={layout as Layout}
+          layout={(editMode ? layout : layout.filter((_, i) => slots[i] != null)) as Layout}
           width={containerWidth}
           gridConfig={{ cols: GRID_COLS, rowHeight: 30, margin: [16, 16] as [number, number] }}
           dragConfig={{ enabled: editMode }}
