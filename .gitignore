@@ -48,3 +48,4 @@ workers/*/*.pfs
 # Runtime configurations (auto-generated per deployment)
 # Note: workers/*/config.json and configs/lines.json are now tracked
 configs/lines.json
+memory.md
