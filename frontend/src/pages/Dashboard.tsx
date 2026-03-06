@@ -192,35 +192,26 @@ export default function Dashboard() {
     const line = lines.find(l => l.config.line_name === lineName)
     if (!line) return
 
-    const updatedConfig = {
-      ...line.config,
-      products: line.config.products
-        ? {
-            ...line.config.products,
-            [productName]: {
-              ...line.config.products[productName],
-              class_thresholds: {
-                ...line.config.products[productName]?.class_thresholds,
-                [className]: newValue,
-              },
-            },
-          }
-        : undefined,
+    const newThresholds = {
+      ...line.config.products?.[productName]?.class_thresholds,
+      [className]: newValue,
     }
 
+    // 로컬 상태 즉시 반영 (낙관적 업데이트)
+    setLines(prev =>
+      prev.map(l => {
+        if (l.config.line_name !== lineName) return l
+        const updatedProducts = l.config.products
+          ? { ...l.config.products, [productName]: { ...l.config.products[productName], class_thresholds: newThresholds } }
+          : undefined
+        return { ...l, config: { ...l.config, products: updatedProducts, class_thresholds: newThresholds } }
+      })
+    )
+
     try {
-      await api.updateLine(lineName, updatedConfig)
-      // 성공 시 로컬 상태도 즉시 반영
-      setLines(prev =>
-        prev.map(l =>
-          l.config.line_name === lineName
-            ? { ...l, config: updatedConfig }
-            : l
-        )
-      )
+      await api.updateThresholds(lineName, productName, newThresholds)
     } catch (e) {
       console.error('Threshold update failed:', e)
-      // 실패 시 서버 상태로 복구
       await loadLines()
     }
   }
@@ -504,27 +495,30 @@ export default function Dashboard() {
           resizeConfig={{ enabled: editMode }}
           onLayoutChange={handleLayoutChange}
         >
-          {slots.map((line, i) => (
-            <div
-              key={String(i)}
-              style={{ cursor: editMode ? 'grab' : 'default' }}
-            >
-              {line ? (
-                <CameraCard
-                  line={line}
-                  onToggle={handleToggle}
-                  onSettings={(l) => requireAdmin(() => setModalLine(l))}
-                  onSwitchProduct={handleSwitchProduct}
-                  onUpdateThreshold={handleUpdateThreshold}
-                  onUpdateDetectorConfig={handleUpdateDetectorConfig}
-                  editMode={editMode}
-                  gridSize={editMode ? { w: layout[i]?.w ?? 0, h: layout[i]?.h ?? 0 } : undefined}
-                />
-              ) : (
-                <EmptySlot index={i} />
-              )}
-            </div>
-          ))}
+          {slots.map((line, i) => {
+            if (!line && !editMode) return null
+            return (
+              <div
+                key={String(i)}
+                style={{ cursor: editMode ? 'grab' : 'default' }}
+              >
+                {line ? (
+                  <CameraCard
+                    line={line}
+                    onToggle={handleToggle}
+                    onSettings={(l) => requireAdmin(() => setModalLine(l))}
+                    onSwitchProduct={handleSwitchProduct}
+                    onUpdateThreshold={handleUpdateThreshold}
+                    onUpdateDetectorConfig={handleUpdateDetectorConfig}
+                    editMode={editMode}
+                    gridSize={editMode ? { w: layout[i]?.w ?? 0, h: layout[i]?.h ?? 0 } : undefined}
+                  />
+                ) : (
+                  <EmptySlot index={i} />
+                )}
+              </div>
+            )
+          })}
         </ReactGridLayout>
       </div>
 

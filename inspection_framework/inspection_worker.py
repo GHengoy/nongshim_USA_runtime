@@ -241,6 +241,7 @@ class InspectionWorker:
     def update_class_thresholds(self, class_thresholds: Optional[dict]) -> None:
         """
         검사 중 class threshold를 동적으로 변경합니다.
+        save_thresholds가 있으면 effective_thresholds를 재계산하여 detector에 전달합니다.
 
         Parameters
         ----------
@@ -248,10 +249,18 @@ class InspectionWorker:
             새로운 class threshold (e.g., {"defect": 0.75, "pinhole": 0.90})
             None 이면 threshold 초기화.
         """
-        if self._detector is not None:
-            self._detector.set_class_thresholds(class_thresholds)
-        # config 도 업데이트 (향후 참고용)
         self.config.class_thresholds = class_thresholds
+        self._original_class_thresholds = class_thresholds
+        if self._detector is not None:
+            # save_thresholds가 있으면 effective = min(class, save)
+            effective = dict(class_thresholds or {})
+            if self.config.save_thresholds:
+                for cls, thr in self.config.save_thresholds.items():
+                    if cls in effective:
+                        effective[cls] = min(effective[cls], thr)
+                    else:
+                        effective[cls] = thr
+            self._detector.set_class_thresholds(effective if effective else class_thresholds)
 
     # ──────────────────────────────────────────────────────────────────
     # 내부 메서드 (Internal Methods) — 외부에서 호출하지 마세요
@@ -281,6 +290,40 @@ class InspectionWorker:
             )
         self._camera.open()
 
+        # Force trigger mode if configured (Basler only, 'auto' = use PFS setting)
+        # Must stop grabbing first — TriggerMode cannot be changed while grabbing.
+        force_trigger = getattr(c, 'collection_mode', 'auto') or 'auto'
+        if force_trigger != 'auto' and c.camera_type == 'basler':
+            try:
+                from pypylon import pylon                    # noqa: PLC0415
+                mode_val = "On" if force_trigger == 'trigger' else "Off"
+                self._camera._cameras.StopGrabbing()
+                self._camera._cam.TriggerMode.SetValue(mode_val)
+                self._camera._cameras.StartGrabbing(pylon.GrabStrategy_LatestImageOnly)
+                print(f"[Worker:{c.line_name}] TriggerMode forced → {mode_val}")
+            except Exception as e:
+                print(f"[Worker:{c.line_name}] Warning: could not force TriggerMode: {e}")
+
+        # 트리거 모드 전용: 센서 인식 후 촬영 딜레이 [µs]
+        trigger_delay = getattr(c, 'trigger_delay_us', None)
+        if trigger_delay and force_trigger == 'trigger' and c.camera_type == 'basler':
+            try:
+                self._camera.set_trigger_delay(float(trigger_delay))
+                print(f"[Worker:{c.line_name}] TriggerDelayAbs → {trigger_delay} µs")
+            except Exception as e:
+                print(f"[Worker:{c.line_name}] Warning: could not set trigger delay: {e}")
+
+        # 트리거 노이즈 제거: LineDebouncerHighTime [µs]
+        debounce_us = getattr(c, 'trigger_debounce_us', None)
+        if debounce_us and force_trigger == 'trigger' and c.camera_type == 'basler':
+            try:
+                cam = self._camera._cam
+                cam.LineSelector.SetValue("Line1")
+                cam.LineDebouncerHighTimeAbs.SetValue(float(debounce_us))
+                print(f"[Worker:{c.line_name}] LineDebouncerHighTime → {debounce_us} µs")
+            except Exception as e:
+                print(f"[Worker:{c.line_name}] Warning: could not set debounce: {e}")
+
     def _init_detector(self):
         """[Init Step] AI 디텍터 생성 (inspection 모드 전용)."""
         c = self.config
@@ -303,15 +346,46 @@ class InspectionWorker:
             detector_config=getattr(c, 'detector_config', None),
         )
 
+    def _measure_camera_fps(self, n_frames: int = 20) -> float:
+        """카메라에서 n_frames를 촬영해 실제 FPS를 측정합니다.
+        연속(continuous) 카메라 모드에서 reject_delay_seconds → frames 변환에 사용.
+        트리거 모드에서는 호출하지 않습니다.
+        """
+        import time as _time
+        grabbed = 0
+        t0 = _time.time()
+        for _ in range(n_frames):
+            _, _, ok = self._camera.grab()
+            if ok:
+                grabbed += 1
+        elapsed = _time.time() - t0
+        if grabbed < 2 or elapsed < 0.01:
+            return 30.0  # 측정 실패 시 기본값 30fps
+        fps = grabbed / elapsed
+        print(f"[Worker:{self.config.line_name}] FPS 측정: {fps:.1f} fps ({grabbed}/{n_frames} 프레임, {elapsed:.2f}s)")
+        return fps
+
     def _init_support_modules(self):
         """[Init Step] 리젝터 + DataManager 생성."""
         c = self.config
         if self._camera is not None:
             from rejecter import Rejecter                   # noqa: PLC0415
+
+            # reject_delay_seconds가 설정된 경우 연속 모드에서 FPS 측정 후 프레임 수로 변환
+            delay_frames = c.reject_delay_frames
+            reject_delay_sec = getattr(c, 'reject_delay_seconds', None)
+            is_continuous = getattr(c, 'collection_mode', 'auto') in ('continuous', 'auto')
+            if reject_delay_sec and reject_delay_sec > 0 and is_continuous:
+                measured_fps = self._measure_camera_fps(n_frames=20)
+                delay_frames = max(1, round(measured_fps * reject_delay_sec))
+                print(f"[Worker:{c.line_name}] reject_delay_seconds={reject_delay_sec}s "
+                      f"→ {delay_frames} frames (@ {measured_fps:.1f} fps)")
+
             self._rejecter = Rejecter(
                 camera=self._camera,
-                reject_delay_frames=c.reject_delay_frames,
+                reject_delay_frames=delay_frames,
                 reject_positions=c.reject_positions,
+                reject_mode=getattr(c, 'reject_mode', 'individual'),
                 time_valve_on=c.time_valve_on,
                 pre_valve_delay=c.pre_valve_delay,
             )
@@ -361,8 +435,8 @@ class InspectionWorker:
             self._rejecter.push(is_defect=is_defect)
 
         # ── 이미지 저장 (save_thresholds 기준) ───────────────────────
-        # 저장 폴더명은 project_name 사용 (없으면 line_name으로 폴백)
-        line = getattr(self.config, 'project_name', None) or self.config.line_name
+        # 저장 폴더명: active_product > project_name > line_name 순으로 폴백
+        line = getattr(self.config, 'active_product', None) or getattr(self.config, 'project_name', None) or self.config.line_name
         saved_category = None
         saved_dets = None
         if self.config.save_thresholds:
@@ -568,6 +642,11 @@ class InspectionWorker:
                 self.frame_queue.put_nowait(item)
             except Exception:
                 pass
+
+    def manual_reject(self):
+        """수동 리젝트 테스트: 다음 push 시 리젝트 신호 1회 발생."""
+        if self._rejecter is not None:
+            self._rejecter.push(is_defect=True)
 
     def _cleanup(self):
         """루프 종료 후 자원 해제."""

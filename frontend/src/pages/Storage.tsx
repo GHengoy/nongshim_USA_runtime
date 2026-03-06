@@ -51,6 +51,7 @@ export default function Storage() {
   const [activeSource, setActiveSource] = useState<'local' | 's3'>('local')
   const [currentPath, setCurrentPath] = useState('')
   const [parentPath, setParentPath] = useState<string | null>(null)
+  const [saveRoot, setSaveRoot] = useState<string | null>(null)
   const [items, setItems] = useState<BrowseItem[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -89,6 +90,7 @@ export default function Storage() {
       setItems(res.items)
       setCurrentPath(res.current_path)
       setParentPath(res.parent_path)
+      setSaveRoot(res.save_root ?? null)
       setTruncated(res.truncated)
     } catch (e: any) {
       setError(e.message || 'Failed to browse')
@@ -152,6 +154,7 @@ export default function Storage() {
     setActiveSource(src)
     setCurrentPath('')
     setParentPath(null)
+    setSaveRoot(null)
     setItems([])
     setError('')
   }
@@ -160,15 +163,32 @@ export default function Storage() {
   const breadcrumbs = (() => {
     if (!currentPath) return []
     if (activeSource === 'local') {
-      const roots = items.length > 0 || currentPath ? [currentPath] : []
-      if (!currentPath) return []
-      const parts = currentPath.split('/')
+      // saveRoot가 있으면: "worker-02/data" 라벨로 시작, 그 이하 세그먼트만 추가
+      if (saveRoot && currentPath.startsWith(saveRoot)) {
+        const rootParts = saveRoot.replace(/\\/g, '/').split('/').filter(Boolean)
+        const rootLabel = rootParts.length >= 2
+          ? `${rootParts[rootParts.length - 2]}/${rootParts[rootParts.length - 1]}`
+          : rootParts[rootParts.length - 1] ?? saveRoot
+        const relativePath = currentPath.slice(saveRoot.length).replace(/^[/\\]/, '')
+        const subParts = relativePath ? relativePath.split('/').filter(Boolean) : []
+        const segs: { label: string; path: string }[] = [
+          { label: rootLabel, path: saveRoot }
+        ]
+        for (let i = 0; i < subParts.length; i++) {
+          segs.push({
+            label: subParts[i],
+            path: saveRoot + '/' + subParts.slice(0, i + 1).join('/'),
+          })
+        }
+        return segs
+      }
+      // saveRoot 없는 경우 (일반 폴더) — fallback
+      const parts = currentPath.split('/').filter(Boolean)
       const segs: { label: string; path: string }[] = []
       for (let i = 0; i < parts.length; i++) {
-        if (!parts[i]) continue
         segs.push({
           label: parts[i],
-          path: parts.slice(0, i + 1).join('/'),
+          path: '/' + parts.slice(0, i + 1).join('/'),
         })
       }
       return segs

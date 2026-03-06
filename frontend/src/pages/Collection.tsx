@@ -309,7 +309,7 @@ export default function Collection() {
               <span className="text-sm font-medium">
                 {detectedMode === 'trigger' ? 'Trigger Mode' : 'Continuous Mode'}
               </span>
-              <span className="text-xs text-gray-500">(auto-detected)</span>
+              <span className="text-xs text-gray-500">(from line settings)</span>
             </div>
 
             {/* Saved count */}

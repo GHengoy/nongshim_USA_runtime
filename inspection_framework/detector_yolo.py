@@ -60,19 +60,26 @@ class YoloDetector(BaseDetector):
         """
         # Lazy import — only load ultralytics when YOLO is actually used
         from ultralytics import YOLO
+        from ultralytics.utils.torch_utils import select_device
 
         self.model_path = model_path
         self.class_thresholds = class_thresholds
-        self.device = device
 
         if class_thresholds:
             self._global_min_conf = min(class_thresholds.values())
         else:
             self._global_min_conf = 0.50
 
+        # select_device must be called before model.to() to properly set
+        # CUDA_VISIBLE_DEVICES. Without this, if another thread previously
+        # called select_device("cpu") (which sets CUDA_VISIBLE_DEVICES=""),
+        # model.to("cuda") raises "No CUDA GPUs are available".
+        actual_device = select_device(device)
+        self.device = str(actual_device)
+
         print(f"[Detector:YOLO] Loading model: {model_path}")
         self._model = YOLO(model_path)
-        self._model.to(device)
+        self._model.to(actual_device)
         if class_thresholds:
             print(f"[Detector:YOLO] Class thresholds: {class_thresholds}")
         print(f"[Detector:YOLO] Ready. Device: {device}")

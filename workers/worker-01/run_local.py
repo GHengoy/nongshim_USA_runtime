@@ -180,7 +180,17 @@ def process_frame(frame, cropped, *, detector, rejecter, data_manager, config):
     # ── AI 감지 ──────────────────────────────────────────────────────────────
     if detector is not None:
         detections = detector.detect(cropped)
-        annotated  = detector.draw(frame, detections)
+
+        # save_thresholds 사용 시: 원래 class_thresholds로 is_defect 재평가
+        # (detector에는 min(class, save) effective_thresholds가 전달되었으므로)
+        if config.class_thresholds and config.save_thresholds:
+            for det in detections:
+                if det.label in config.class_thresholds:
+                    det.is_defect = det.confidence >= config.class_thresholds[det.label]
+                else:
+                    det.is_defect = False
+
+        annotated  = detector.draw(cropped, detections)
         is_defect  = detector.has_defect(detections)
     else:
         detections, annotated, is_defect = [], frame, False

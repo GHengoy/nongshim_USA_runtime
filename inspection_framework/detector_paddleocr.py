@@ -72,17 +72,23 @@ detector_paddleocr.py — PaddleOCR Text Detection Plugin (v2: Pattern-Based OCR
     Automatically loaded by create_detector("paddleocr", ...).
 """
 
+import os
 import re
 import cv2
 import numpy as np
 from typing import Dict, List, Optional
+
+# PaddlePaddle 플래그는 paddle이 import되기 전 모듈 레벨에서 설정해야 효과가 있음
+os.environ.setdefault('PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK', 'True')
+os.environ.setdefault('FLAGS_use_mkldnn', '0')        # oneDNN 비활성 (PIR 미구현 연산 회피)
+os.environ.setdefault('FLAGS_enable_pir_api', '0')    # 새 PIR 실행기 비활성
 
 from detector import BaseDetector, DetectionResult, register_detector
 
 
 @register_detector("paddleocr")
 class PaddleOcrDetector(BaseDetector):
-    """PaddleOCR-based text detection and recognition (v3.x API)."""
+    """PaddleOCR-based text detection and recognition (v2.x API)."""
 
     def __init__(
         self,
@@ -99,14 +105,17 @@ class PaddleOcrDetector(BaseDetector):
         self.class_name = dc.get("class_name", "date_check")  # 저장 폴더명 (고정)
         lang = dc.get("lang", "en")
 
-        # PaddleOCR 3.x constructor parameters
-        ocr_kwargs: dict = {"lang": lang}
+        # PaddleOCR constructor parameters
+        # NOTE: use_gpu / gpu_mem were removed in PaddleOCR 3.x (GPU auto-detected)
+        # device 매핑: 'cuda' / 'cuda:0' → 'GPU:0', 'cpu' → 'CPU'
+        if device and device.lower() != 'cpu':
+            gpu_id = device.split(':')[1] if ':' in device else '0'
+            paddle_device = f"GPU:{gpu_id}"
+        else:
+            paddle_device = "CPU"
+        ocr_kwargs: dict = {"lang": lang, "device": paddle_device}
 
-        # Performance tuning parameters
-        # Note: PaddleOCR automatically uses GPU if available
-        # use_gpu is deprecated, use gpu_mem instead (in MB)
-        if "gpu_mem" in dc:
-            ocr_kwargs["gpu_mem"] = dc["gpu_mem"]  # e.g., 500 MB
+        # Performance tuning parameters (3.x compatible only)
         if "use_angle_cls" in dc:
             ocr_kwargs["use_angle_cls"] = dc["use_angle_cls"]
         if "det_limit_side_len" in dc:

@@ -1,36 +1,79 @@
 {
   "line_name": "worker-02",
-  "project_name": "Line13_Misscut",
+  "project_name": "Line13_Misscut_B",
   "enabled": true,
-  "camera_type": "webcam",
-  "camera_ip": "1",
+  "camera_type": "basler",
+  "camera_ip": "192.168.4.3",
   "pfs_file": "camera.pfs",
+  "collection_mode": "continuous",
   "reject_pulse_count": 1,
-  "detector_type": "yolo",
-  "detector_config": null,
-  "active_product": "Default",
+  "active_product": "ocr",
   "products": {
     "Default": {
       "rotation": "NONE",
       "crop_region": null,
-      "model_path": "./weights/best.pt",
+      "model_path": "/home/usa/nongshim_USA_runtime/backend/../workers/worker-02/./weights/best.pt",
       "class_thresholds": {
-        "AI": 0.8
+        "soup0": 0.6,
+        "soup1": 0.6,
+        "soup2": 1,
+        "soup3": 1
       },
       "save_thresholds": {
-        "AI": 0.6
+        "soup0": 0.6,
+        "soup1": 0.6,
+        "soup2": 1,
+        "soup3": 1
       },
-      "device": "cpu",
-      "reject_delay_frames": 30,
-      "reject_positions": 3,
-      "time_valve_on": 0.1,
-      "pre_valve_delay": 0.25,
-      "save_root": "./data",
+      "device": "cuda:0",
+      "reject_delay_frames": 21,
+      "reject_positions": 1,
+      "reject_mode": "individual",
+      "time_valve_on": 0.2,
+      "pre_valve_delay": 0,
+      "save_root": "/home/usa/nongshim_USA_runtime/backend/../workers/worker-02/./data",
       "retention_days": 180,
       "max_preview": 50,
       "save_normal": false,
       "detector_type": "yolo",
-      "detector_config": null
+      "detector_config": null,
+      "show_threshold": 0.3,
+      "data_yaml": "./weights/data.yaml",
+      "trigger_delay_us": null,
+      "trigger_debounce_us": null,
+      "reject_delay_seconds": null
+    },
+    "ocr": {
+      "rotation": "NONE",
+      "crop_region": null,
+      "model_path": "",
+      "class_thresholds": {},
+      "save_thresholds": null,
+      "device": "cuda:0",
+      "reject_delay_frames": 21,
+      "reject_positions": 1,
+      "reject_mode": "individual",
+      "time_valve_on": 0.2,
+      "pre_valve_delay": 0,
+      "save_root": "./data",
+      "retention_days": 180,
+      "max_preview": 50,
+      "save_normal": false,
+      "detector_type": "paddleocr",
+      "detector_config": {
+        "lang": "en",
+        "change_date": "",
+        "class_name": "date_check",
+        "use_gpu": true,
+        "use_angle_cls": false,
+        "det_limit_side_len": 480,
+        "rec_batch_num": 10
+      },
+      "show_threshold": 0.3,
+      "data_yaml": "./weights/data.yaml",
+      "trigger_delay_us": null,
+      "trigger_debounce_us": null,
+      "reject_delay_seconds": null
     }
   }
 }

@@ -51,6 +51,7 @@ class CollectionSession:
         rotation: str,
         crop_region: Optional[list],
         save_dir: str,
+        force_mode: Optional[str] = None,  # None=auto, "trigger", "continuous"
     ):
         self.line_name = line_name
         self.save_dir = save_dir
@@ -69,6 +70,8 @@ class CollectionSession:
         self._stop_event = threading.Event()
         self._status = "stopped"
         self._last_error = ""
+        self._mode_detected = False  # 트리거 모드 감지 완료 여부
+        self._force_mode = force_mode  # None | "trigger" | "continuous"
 
         # 저장 제어
         self._pending_saves = 0         # 연속 모드: 스페이스 1회 = +1, 루프에서 1장 저장 후 -1
@@ -169,8 +172,12 @@ class CollectionSession:
         now = datetime.now()
         filename = now.strftime("%Y%m%d_%H%M%S") + f"_{now.microsecond // 1000:03d}.jpg"
         filepath = os.path.join(self.save_dir, filename)
-        cv2.imwrite(filepath, image)
+        ok = cv2.imwrite(filepath, image)
+        if not ok:
+            print(f"[Collection:{self.line_name}] WARNING: imwrite failed → {filepath}")
+            return
         self._saved_count += 1
+        print(f"[Collection:{self.line_name}] Saved #{self._saved_count}: {filename}")
 
     def _push_frame(self, image):
         """JPEG 인코딩 후 frame_queue에 넣습니다."""
@@ -193,14 +200,22 @@ class CollectionSession:
             # 1. 카메라 초기화
             self._init_camera()
 
-            # 2. 트리거 모드 감지
-            is_trigger = self._detect_trigger_mode()
+            # 2. 트리거 모드 감지 (force_mode가 auto/None이면 카메라 설정으로 자동 감지)
+            if self._force_mode == "trigger":
+                is_trigger = True
+            elif self._force_mode == "continuous":
+                is_trigger = False
+            else:
+                is_trigger = self._detect_trigger_mode()
             self._auto_save = is_trigger
             self._detected_mode = "trigger" if is_trigger else "continuous"
-            print(f"[Collection:{self.line_name}] Mode: {self._detected_mode}")
+            self._mode_detected = True
+            print(f"[Collection:{self.line_name}] Mode: {self._detected_mode}"
+                  + (" (forced)" if self._force_mode else " (auto-detected)"))
 
             # 3. 저장 디렉토리 생성
             os.makedirs(self.save_dir, exist_ok=True)
+            print(f"[Collection:{self.line_name}] Save dir: {self.save_dir}")
 
             # 4. 수집 루프
             while not self._stop_event.is_set():

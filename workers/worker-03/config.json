@@ -1,27 +1,67 @@
 {
   "line_name": "worker-03",
-  "enabled": false,
-  "camera_type": "webcam",
-  "camera_ip": "0",
-  "pfs_file": "camera.pfs",
-  "active_product": "Default",
+  "project_name": "Line14BPouchC",
+  "enabled": true,
+  "camera_type": "basler",
+  "camera_ip": "192.168.3.3",
+  "pfs_file": "/home/usa/nongshim_USA_runtime/workers/worker-03/camera.pfs",
+  "collection_mode": "trigger",
+  "reject_pulse_count": null,
+  "active_product": "신라면블랙",
   "products": {
     "Default": {
       "rotation": "NONE",
       "crop_region": null,
-      "model_path": "./weights/best.pt",
-      "class_thresholds": null,
+      "model_path": "/home/usa/nongshim_USA_runtime/backend/../workers/worker-03/./weights/best.pt",
+      "class_thresholds": {
+        "defect": 0.7
+      },
       "save_thresholds": null,
       "device": "cuda",
       "reject_delay_frames": 10,
       "reject_positions": 1,
+      "reject_mode": "individual",
       "time_valve_on": 0.1,
       "pre_valve_delay": 0.25,
+      "save_root": "/home/usa/nongshim_USA_runtime/backend/../workers/worker-03/./data",
+      "retention_days": 180,
+      "max_preview": 50,
+      "save_normal": false,
+      "detector_type": "yolo",
+      "detector_config": null,
+      "show_threshold": 0.3,
+      "data_yaml": "./weights/data.yaml"
+    },
+    "신라면블랙": {
+      "rotation": "NONE",
+      "crop_region": null,
+      "model_path": "/home/usa/nongshim_USA_runtime/workers/worker-03/weights/best.pt",
+      "class_thresholds": {
+        "soup0": 0.6,
+        "soup1": 0.6,
+        "soup2": 0.6,
+        "soup3": 1
+      },
+      "save_thresholds": {
+        "soup0": 0.6,
+        "soup1": 0.6,
+        "soup2": 0.6,
+        "soup3": 1
+      },
+      "device": "cuda",
+      "reject_delay_frames": 15,
+      "reject_positions": 1,
+      "reject_mode": "individual",
+      "time_valve_on": 0.2,
+      "pre_valve_delay": 0,
       "save_root": "./data",
       "retention_days": 180,
       "max_preview": 50,
-      "save_normal": false
+      "save_normal": false,
+      "detector_type": "yolo",
+      "detector_config": null,
+      "show_threshold": 0.3,
+      "data_yaml": "./weights/data.yaml"
     }
-  },
-  "detector_type": "yolo"
+  }
 }

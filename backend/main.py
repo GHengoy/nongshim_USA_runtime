@@ -47,6 +47,11 @@ import secrets
 import sys
 import threading
 import time
+
+# PaddlePaddle 플래그: paddle이 import되기 전 가장 먼저 설정해야 효과가 있음
+os.environ.setdefault('PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK', 'True')
+os.environ.setdefault('FLAGS_use_mkldnn', '0')      # oneDNN 비활성 (PIR 미구현 연산 회피)
+os.environ.setdefault('FLAGS_enable_pir_api', '0')  # 새 PIR 실행기 비활성
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 
@@ -126,6 +131,7 @@ class LineConfig(BaseModel):
     mode: str = 'inspection'          # inspection | collection
     camera_ip: str = "192.168.1.10"   # Basler: IP 주소 / Webcam: 인덱스("0","1",...)
     pfs_file: str = "camera.pfs"
+    collection_mode: str = "auto"             # auto | trigger | continuous (검사·수집 공용)
     rotation: str = "NONE"           # NONE | CLOCKWISE_90 | COUNTERCLOCKWISE_90 | 180
     crop_region: Optional[list] = None
     model_path: str = "./weights/best.pt"
@@ -294,8 +300,13 @@ def _load_registry():
             config.setdefault('mode', 'inspection')
             config.setdefault('enabled', True)
             config.setdefault('reject_positions', 1)
+            config.setdefault('reject_mode', 'individual')
+            config.setdefault('reject_delay_seconds', None)
+            config.setdefault('trigger_delay_us', None)
             config.setdefault('save_thresholds', None)
             config.setdefault('detector_type', 'yolo')
+            config.setdefault('show_threshold', 0.3)
+            config.setdefault('data_yaml', './weights/data.yaml')
             _migrate_config(config)
             _expand_product_fields(config)
             # line_name이 없으면 폴더 이름으로 초기화 (내부 ID, 변경 불가)
@@ -422,6 +433,14 @@ def _make_worker(config_dict: dict, folder: str = None):
     from config import InspectionConfig          # noqa: PLC0415
     from inspection_worker import InspectionWorker  # noqa: PLC0415
     d = {k: v for k, v in config_dict.items() if k != 'enabled'}
+    # 상대 경로 → 워커 폴더 기준 절대 경로로 변환
+    if folder:
+        def _abs(p):
+            return os.path.join(folder, p) if p and not os.path.isabs(p) else p
+        d['pfs_file'] = _abs(d.get('pfs_file', ''))
+        for prod in d.get('products', {}).values():
+            prod['model_path'] = _abs(prod.get('model_path', ''))
+            prod['save_root']   = _abs(prod.get('save_root', ''))
     cfg = InspectionConfig.from_dict(d)
 
     if folder:
@@ -522,7 +541,12 @@ def reload_lines():
             disk_cfg.setdefault('mode', 'inspection')
             disk_cfg.setdefault('enabled', True)
             disk_cfg.setdefault('reject_positions', 1)
+            disk_cfg.setdefault('reject_mode', 'individual')
+            disk_cfg.setdefault('reject_delay_seconds', None)
+            disk_cfg.setdefault('trigger_delay_us', None)
             disk_cfg.setdefault('detector_type', 'yolo')
+            disk_cfg.setdefault('show_threshold', 0.3)
+            disk_cfg.setdefault('data_yaml', './weights/data.yaml')
             _migrate_config(disk_cfg)
             _expand_product_fields(disk_cfg)
             entry['config'] = disk_cfg
@@ -731,8 +755,13 @@ def reset_line(name: str):
             config.setdefault('mode', 'inspection')
             config.setdefault('enabled', True)
             config.setdefault('reject_positions', 1)
+            config.setdefault('reject_mode', 'individual')
+            config.setdefault('reject_delay_seconds', None)
+            config.setdefault('trigger_delay_us', None)
             config.setdefault('save_thresholds', None)
             config.setdefault('detector_type', 'yolo')
+            config.setdefault('show_threshold', 0.3)
+            config.setdefault('data_yaml', './weights/data.yaml')
             _migrate_config(config)
             _expand_product_fields(config)
             entry["config"] = config
@@ -758,6 +787,60 @@ def reset_line(name: str):
 def get_stats(name: str):
     _get_entry(name)
     return _worker_stats(name)
+
+
+@app.get("/api/lines/{name}/capture-frame")
+def capture_frame(name: str):
+    """실행 중인 워커에서 프레임 한 장을 캡처하여 JPEG로 반환합니다."""
+    entry = _get_entry(name)
+    w = entry.get("worker")
+    if not w or w.status != "running":
+        raise HTTPException(409, "Worker is not running")
+    try:
+        item = w.frame_queue.get(timeout=2.0)
+    except Empty:
+        raise HTTPException(504, "No frame available (timeout)")
+    jpeg = item[0] if isinstance(item, tuple) else item
+    return StreamingResponse(
+        iter([jpeg]),
+        media_type="image/jpeg",
+        headers={"Cache-Control": "no-cache"},
+    )
+
+
+@app.patch("/api/lines/{name}/thresholds")
+def update_thresholds(name: str, body: dict):
+    """실행 중 워커의 class_thresholds를 재시작 없이 업데이트합니다."""
+    entry = _get_entry(name)
+    product_name = body.get("product")
+    new_thresholds = body.get("class_thresholds")
+    if not product_name or new_thresholds is None:
+        raise HTTPException(400, "Missing 'product' or 'class_thresholds'")
+    config = entry["config"]
+    products = config.get("products", {})
+    if product_name not in products:
+        raise HTTPException(404, f"Product '{product_name}' not found")
+    # config 업데이트
+    products[product_name]["class_thresholds"] = new_thresholds
+    if config.get("active_product") == product_name:
+        config["class_thresholds"] = new_thresholds
+    _save_line(name)
+    # 실행 중이면 detector에 즉시 반영 (재시작 없음)
+    w = entry.get("worker")
+    if w and w.status == "running" and config.get("active_product") == product_name:
+        w.update_class_thresholds(new_thresholds)
+    return {"status": "ok"}
+
+
+@app.post("/api/lines/{name}/manual-reject")
+def manual_reject(name: str):
+    """수동 리젝트 테스트: 리젝트 신호를 1회 발생시킵니다."""
+    entry = _get_entry(name)
+    w = entry.get("worker")
+    if not w or w.status != "running":
+        raise HTTPException(409, "Worker is not running")
+    w.manual_reject()
+    return {"status": "ok"}
 
 
 @app.post("/api/lines/{name}/product")
@@ -882,14 +965,21 @@ def _collect_save_roots() -> List[str]:
     roots = set()
     for entry in _registry.values():
         cfg = entry["config"]
-        # 활성 제품의 save_root
+        folder = entry.get("folder", "")
+
+        def _abs_root(p: str) -> str:
+            if not p:
+                p = "./data"
+            if os.path.isabs(p):
+                return os.path.normpath(p)
+            if folder:
+                return os.path.normpath(os.path.join(folder, p))
+            return os.path.abspath(p)
+
         products = cfg.get("products", {})
         for prod in products.values():
-            sr = prod.get("save_root", "./data")
-            roots.add(os.path.abspath(sr))
-        # flat level fallback
-        sr = cfg.get("save_root", "./data")
-        roots.add(os.path.abspath(sr))
+            roots.add(_abs_root(prod.get("save_root", "./data")))
+        roots.add(_abs_root(cfg.get("save_root", "./data")))
     if not roots:
         roots.add(os.path.abspath("./data"))
     return list(roots)
@@ -926,6 +1016,27 @@ def get_history_image(path: str = Query(...)):
     if not os.path.isfile(abspath):
         raise HTTPException(404, "Image not found")
     return FileResponse(abspath, media_type="image/jpeg")
+
+
+@app.post("/api/history/rescan")
+def rescan_history():
+    """히스토리 DB를 즉시 전체 재스캔합니다."""
+    global _history_db
+    roots = _collect_save_roots()
+    print(f"[History] Rescan requested. Roots: {roots}")
+    if _history_db is None:
+        db_dir = roots[0] if roots else os.path.abspath("./data")
+        db_path = os.path.join(db_dir, "history_index.db")
+        _history_db = HistoryDB(db_path)
+        _history_db.start(save_roots=roots)
+    else:
+        _history_db._save_roots = roots
+        threading.Thread(
+            target=_history_db._full_scan,
+            name="history-rescan",
+            daemon=True,
+        ).start()
+    return {"status": "rescanning", "roots": roots}
 
 
 @app.get("/api/history/filters")
@@ -985,25 +1096,30 @@ def start_collection(body: CollectionStartRequest):
         raise HTTPException(409, "Collection session already active on this line.")
 
     cfg = entry["config"]
+    folder = entry.get("folder", "")
     save_dir = os.path.join(os.path.dirname(__file__), '..', 'only_image', name)
+
+    def _abs(p: str) -> str:
+        return os.path.join(folder, p) if p and not os.path.isabs(p) and folder else p
 
     session = CollectionSession(
         line_name=name,
         camera_type=cfg.get("camera_type", "basler"),
         camera_ip=cfg.get("camera_ip", ""),
-        pfs_file=cfg.get("pfs_file", "camera.pfs"),
+        pfs_file=_abs(cfg.get("pfs_file", "camera.pfs")),
         rotation=cfg.get("rotation", "NONE"),
         crop_region=cfg.get("crop_region"),
         save_dir=save_dir,
+        force_mode=cfg.get("collection_mode", "auto") or "auto",
     )
     session.start()
     _collection_sessions[name] = session
 
-    # 모드 감지까지 잠시 대기 (카메라 open 완료를 위해)
+    # 모드 감지 완료까지 대기 (최대 3초)
     for _ in range(30):
         if session.status != "running":
             break
-        if session.detected_mode != "continuous" or session._camera is not None:
+        if session._mode_detected:
             break
         time.sleep(0.1)
 
@@ -1265,8 +1381,12 @@ def browse_local(path: str = Query("")):
         for r in sorted(roots):
             if not os.path.isdir(r):
                 continue
+            # worker-02/data 형식으로 표시 (마지막 2 세그먼트)
+            parts = r.replace("\\", "/").split("/")
+            parts = [p for p in parts if p]
+            display_name = "/".join(parts[-2:]) if len(parts) >= 2 else (parts[-1] if parts else r)
             items.append({
-                "name": os.path.basename(r) or r,
+                "name": display_name,
                 "type": "folder",
                 "size": None,
                 "modified": datetime.fromtimestamp(os.path.getmtime(r)).isoformat() if os.path.exists(r) else None,
@@ -1276,6 +1396,7 @@ def browse_local(path: str = Query("")):
             "items": items,
             "current_path": "",
             "parent_path": None,
+            "save_root": None,
             "storage_type": "local",
             "truncated": False,
         }
@@ -1314,12 +1435,17 @@ def browse_local(path: str = Query("")):
     roots = _collect_save_roots()
     parent = os.path.dirname(abspath)
     is_root = abspath in roots
-    parent_path = None if is_root else (parent if any(parent == r or parent.startswith(r + os.sep) for r in roots) else "")
+    # save_root 수준에서는 "" (루트 목록으로 복귀), 그 하위는 부모 폴더, 범위 외는 ""
+    parent_path = "" if is_root else (parent if any(parent == r or parent.startswith(r + os.sep) for r in roots) else "")
+
+    # 현재 경로가 속한 save_root 찾기
+    save_root = next((r for r in roots if abspath == r or abspath.startswith(r + os.sep)), None)
 
     return {
         "items": items,
         "current_path": abspath,
         "parent_path": parent_path,
+        "save_root": save_root,
         "storage_type": "local",
         "truncated": len(items) >= _BROWSE_LIMIT,
     }
@@ -1513,6 +1639,83 @@ def health():
     return {"status": "ok", "lines": len(_registry), "running": running}
 
 
+@app.get("/api/system/browse-files")
+def browse_files(path: str = Query(""), extensions: str = Query("")):
+    """파일 시스템 탐색 - 디렉토리와 특정 확장자 파일만 반환."""
+    import os
+    target = path or os.path.expanduser("~")
+    target = os.path.abspath(target)
+    if not os.path.isdir(target):
+        raise HTTPException(400, f"Not a directory: {target}")
+    items = []
+    try:
+        ext_list = [e.strip().lower() for e in extensions.split(",") if e.strip()] if extensions else []
+        for entry in sorted(os.scandir(target), key=lambda e: (not e.is_dir(), e.name.lower())):
+            if entry.name.startswith('.'):
+                continue
+            if entry.is_dir():
+                items.append({"name": entry.name, "path": entry.path, "is_dir": True})
+            elif ext_list:
+                if any(entry.name.lower().endswith(ext) for ext in ext_list):
+                    items.append({"name": entry.name, "path": entry.path, "is_dir": False})
+            else:
+                items.append({"name": entry.name, "path": entry.path, "is_dir": False})
+    except PermissionError:
+        raise HTTPException(403, f"Permission denied: {target}")
+    return {"current": target, "parent": os.path.dirname(target), "items": items[:500]}
+
+
+@app.post("/api/system/parse-yaml")
+def parse_yaml(body: dict):
+    """YAML 파일을 파싱하여 클래스 이름 목록을 반환."""
+    import yaml as _yaml
+    file_path = body.get("path", "")
+    line_name = body.get("line_name", "")
+    if not file_path:
+        raise HTTPException(400, "No path provided")
+    # 상대경로면 워커 디렉토리 기준으로 해석
+    if not os.path.isabs(file_path) and line_name:
+        worker_dir = os.path.join(_WORKERS_DIR, line_name)
+        file_path = os.path.normpath(os.path.join(worker_dir, file_path))
+    if not os.path.isfile(file_path):
+        raise HTTPException(400, f"File not found: {file_path}")
+    try:
+        with open(file_path) as f:
+            data = _yaml.safe_load(f)
+        names = {}
+        if isinstance(data, dict):
+            raw = data.get("names", {})
+            if isinstance(raw, dict):
+                names = {str(k): str(v) for k, v in raw.items()}
+            elif isinstance(raw, list):
+                names = {str(i): str(v) for i, v in enumerate(raw)}
+        return {"names": names, "nc": data.get("nc", len(names))}
+    except Exception as e:
+        raise HTTPException(400, f"YAML parse error: {e}")
+
+
+@app.get("/api/system/gpus")
+def get_gpus():
+    """사용 가능한 GPU 목록을 반환합니다."""
+    try:
+        import torch
+        if not torch.cuda.is_available():
+            return {"gpus": []}
+        gpus = []
+        for i in range(torch.cuda.device_count()):
+            props = torch.cuda.get_device_properties(i)
+            total_mb = props.total_memory // (1024 * 1024)
+            gpus.append({
+                "index": i,
+                "device": f"cuda:{i}",
+                "name": props.name,
+                "total_mb": total_mb,
+            })
+        return {"gpus": gpus}
+    except Exception as e:
+        return {"gpus": [], "error": str(e)}
+
+
 # ── 서버 수명주기: 히스토리 인덱서 + 주기적 클린업 ────────────────────────────
 
 
@@ -1575,15 +1778,13 @@ def _run_cleanup():
     gs = _load_global_settings()
     local_retention = gs.get("storage", {}).get("local_retention_days", 180)
 
-    for name, entry in _registry.items():
-        if local_retention <= 0:
-            continue
-        save_root = entry["config"].get("save_root", "./data")
-        try:
-            dm = DataManager(save_root=save_root)
-            dm.cleanup_old_data(local_retention)
-        except Exception as e:
-            print(f"[Cleanup] {name} local cleanup failed: {e}")
+    if local_retention > 0:
+        for save_root in _collect_save_roots():
+            try:
+                dm = DataManager(save_root=save_root)
+                dm.cleanup_old_data(local_retention)
+            except Exception as e:
+                print(f"[Cleanup] ({save_root}) local cleanup failed: {e}")
 
     # S3 정리 (글로벌 s3_retention_days 사용)
     try:

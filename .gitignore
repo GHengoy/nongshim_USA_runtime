@@ -34,6 +34,13 @@ sample_Ansung_factory/
 image.png
 plan.md
 
+# Worker runtime files (keep config.json and run_local.py only)
+workers/*/data/
+workers/*/weights/
+workers/*/*.pfs
+*.bak
+*.db
+
 # Secrets and local configuration
 .env
 .env.local

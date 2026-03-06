@@ -1,5 +1,12 @@
 export type RotationType = 'CLOCKWISE_90' | 'COUNTERCLOCKWISE_90' | '180' | 'NONE'
-export type DeviceType = 'cuda' | 'cpu'
+export type DeviceType = string  // 'cpu' | 'cuda' | 'cuda:0' | 'cuda:1' | ...
+
+export interface GpuInfo {
+  index: number
+  device: string   // e.g. 'cuda:0'
+  name: string
+  total_mb: number
+}
 export type WorkerStatus = 'running' | 'stopped' | 'error' | 'initializing'
 export type CameraType = 'basler' | 'webcam'
 export type DetectorType = 'yolo' | 'paddleocr' | 'cnn'
@@ -12,15 +19,21 @@ export interface ProductConfig {
   save_thresholds: Record<string, number> | null
   device: DeviceType
   reject_delay_frames: number
+  reject_delay_seconds?: number | null
   reject_positions: number
+  reject_mode?: 'individual' | 'continuous'
   time_valve_on: number
   pre_valve_delay: number
+  trigger_delay_us?: number | null
+  trigger_debounce_us?: number | null
   save_root: string
   retention_days: number
   max_preview: number
   save_normal: boolean
   detector_type?: DetectorType
   detector_config?: Record<string, any> | null
+  show_threshold?: number
+  data_yaml?: string
 }
 
 export interface InspectionConfig {
@@ -30,6 +43,7 @@ export interface InspectionConfig {
   camera_type: CameraType
   camera_ip: string   // Basler: IP 주소 / Webcam: 인덱스 문자열 ("0", "1", ...)
   pfs_file: string
+  collection_mode?: 'auto' | 'trigger' | 'continuous'
   rotation: RotationType
   crop_region: [number, number, number, number] | null
   model_path: string
@@ -37,15 +51,21 @@ export interface InspectionConfig {
   save_thresholds: Record<string, number> | null
   device: DeviceType
   reject_delay_frames: number
+  reject_delay_seconds?: number | null
   reject_positions: number
+  reject_mode?: 'individual' | 'continuous'
   time_valve_on: number
   pre_valve_delay: number
+  trigger_delay_us?: number | null
+  trigger_debounce_us?: number | null
   save_root: string
   retention_days: number
   max_preview: number
   save_normal: boolean
   detector_type?: DetectorType
   detector_config?: Record<string, any> | null
+  show_threshold?: number
+  data_yaml?: string
   active_product?: string
   products?: Record<string, ProductConfig>
 }
@@ -143,6 +163,7 @@ export interface BrowseResponse {
   items: BrowseItem[]
   current_path: string
   parent_path: string | null
+  save_root: string | null
   storage_type: string
   truncated: boolean
 }

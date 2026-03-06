@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, useCallback } from 'react'
 import { Camera, Play, Square, Settings, AlertTriangle, Loader2, GripVertical, X } from 'lucide-react'
 import { InspectionLine } from '../types'
+import * as api from '../api'
 import { WS_BASE } from '../config'
 import StatusBadge from './StatusBadge'
 
@@ -120,6 +121,19 @@ export default function CameraCard({ line, onToggle, onSettings, onSwitchProduct
     }
   }, [ocrConfig.change_date])
 
+  const [rejectFlash, setRejectFlash] = useState(false)
+
+  const handleManualReject = useCallback(async () => {
+    if (!isRunning) return
+    try {
+      await api.manualReject(config.line_name)
+      setRejectFlash(true)
+      setTimeout(() => setRejectFlash(false), 400)
+    } catch (e) {
+      console.error('Manual reject failed:', e)
+    }
+  }, [isRunning, config.line_name])
+
   const urlRef = useRef<string | null>(null)
   const wsRef = useRef<WebSocket | null>(null)
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -221,7 +235,14 @@ export default function CameraCard({ line, onToggle, onSettings, onSwitchProduct
   return (
     <div
       ref={cardRef}
-      className={`h-full flex flex-col border rounded-xl overflow-hidden transition-colors ${borderColor}`}
+      tabIndex={0}
+      onKeyDown={e => {
+        if (e.key === 'r' || e.key === 'R') {
+          e.preventDefault()
+          handleManualReject()
+        }
+      }}
+      className={`h-full flex flex-col border rounded-xl overflow-hidden transition-colors outline-none ${borderColor}`}
       style={{ backgroundColor: 'rgba(44,49,58,1.0)', backdropFilter: 'blur(12px)' }}
     >
       {/* 카메라 피드 영역 — flex-1로 남은 공간 모두 사용 */}
@@ -278,6 +299,13 @@ export default function CameraCard({ line, onToggle, onSettings, onSwitchProduct
           <div className="text-center">
             <Camera size={36} className="text-gray-800 mx-auto mb-2" />
             <p className="text-xs text-gray-700">Offline</p>
+          </div>
+        )}
+
+        {/* Manual reject flash */}
+        {rejectFlash && (
+          <div className="absolute inset-0 bg-red-500/20 pointer-events-none flex items-center justify-center">
+            <span className="text-red-400 text-sm font-bold bg-black/60 rounded px-3 py-1">REJECT SENT</span>
           </div>
         )}
 
@@ -341,13 +369,8 @@ export default function CameraCard({ line, onToggle, onSettings, onSwitchProduct
             {/* Threshold/Change Date 버튼 — 제품 드롭다운 왼쪽 */}
             <button
               onClick={() => setShowThresholdPanel(true)}
-              disabled={isActive}
-              className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold transition-colors border ${
-                isActive
-                  ? 'opacity-50 cursor-not-allowed text-gray-600 border-gray-700/40'
-                  : 'text-amber-600/70 hover:text-amber-500 hover:bg-amber-500/10 border-amber-500/20 hover:border-amber-500/40'
-              }`}
-              title={isActive ? 'Disabled while running' : (activeProductConfig?.detector_type === 'paddleocr' ? 'Change Date Pattern' : 'Adjust Thresholds')}
+              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold transition-colors border text-amber-600/70 hover:text-amber-500 hover:bg-amber-500/10 border-amber-500/20 hover:border-amber-500/40"
+              title={activeProductConfig?.detector_type === 'paddleocr' ? 'Change Date Pattern' : 'Adjust Thresholds'}
             >
               <Settings size={13} />
               <span>{activeProductConfig?.detector_type === 'paddleocr' ? 'Change Date' : 'Threshold'}</span>

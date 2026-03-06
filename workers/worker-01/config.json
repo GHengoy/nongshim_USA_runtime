@@ -1,38 +1,78 @@
 {
   "line_name": "worker-01",
-  "project_name": "",
+  "project_name": "Line14BPouchA",
   "enabled": true,
-  "camera_type": "webcam",
-  "camera_ip": "0",
-  "pfs_file": "camera.pfs",
+  "camera_type": "basler",
+  "camera_ip": "192.168.1.3",
+  "pfs_file": "/home/usa/nongshim_USA_runtime/workers/worker-01/camera.pfs",
+  "collection_mode": "trigger",
   "reject_pulse_count": null,
-  "active_product": "Default",
+  "active_product": "신라면블랙",
   "products": {
     "Default": {
       "rotation": "NONE",
       "crop_region": null,
-      "model_path": "",
-      "class_thresholds": {},
-      "save_thresholds": null,
-      "device": "cpu",
-      "reject_delay_frames": 10,
+      "model_path": "/home/usa/nongshim_USA_runtime/backend/../workers/worker-01/./weights/best.pt",
+      "class_thresholds": {
+        "soup0": 1,
+        "soup1": 1,
+        "soup2": 1,
+        "soup3": 0.6
+      },
+      "save_thresholds": {
+        "soup0": 0.6,
+        "soup1": 0.6,
+        "soup2": 0.6,
+        "soup3": 0.6
+      },
+      "device": "cuda:0",
+      "reject_delay_frames": 1,
       "reject_positions": 1,
-      "time_valve_on": 0.1,
+      "reject_mode": "individual",
+      "time_valve_on": 0.2,
+      "pre_valve_delay": 0,
+      "save_root": "/home/usa/nongshim_USA_runtime/backend/../workers/worker-01/./data",
+      "retention_days": 180,
+      "max_preview": 50,
+      "save_normal": false,
+      "detector_type": "yolo",
+      "detector_config": null,
+      "show_threshold": 0.3,
+      "data_yaml": "./weights/data.yaml"
+    },
+    "신라면블랙": {
+      "rotation": "NONE",
+      "crop_region": null,
+      "model_path": "/home/usa/nongshim_USA_runtime/workers/weights/shinblack/best.pt",
+      "class_thresholds": {
+        "soup0": 0.7,
+        "soup1": 1,
+        "soup2": 0.7,
+        "soup3": 0.7
+      },
+      "save_thresholds": {
+        "soup0": 0.6,
+        "soup1": 1,
+        "soup2": 0.6,
+        "soup3": 0.6
+      },
+      "device": "cuda:0",
+      "reject_delay_frames": 26,
+      "reject_positions": 1,
+      "reject_mode": "individual",
+      "time_valve_on": 0.2,
       "pre_valve_delay": 0,
       "save_root": "./data",
       "retention_days": 180,
       "max_preview": 50,
       "save_normal": false,
-      "detector_type": "paddleocr",
-      "detector_config": {
-        "lang": "en",
-        "change_date": "2011\\.11\\.33",
-        "class_name": "date_check",
-        "use_gpu": true,
-        "use_angle_cls": false,
-        "det_limit_side_len": 480,
-        "rec_batch_num": 10
-      }
+      "detector_type": "yolo",
+      "detector_config": null,
+      "show_threshold": 0.3,
+      "data_yaml": "./weights/data.yaml",
+      "trigger_delay_us": null,
+      "trigger_debounce_us": null,
+      "reject_delay_seconds": null
     }
   }
 }

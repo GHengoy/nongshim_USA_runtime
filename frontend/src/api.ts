@@ -1,4 +1,4 @@
-import { InspectionConfig, InspectionLine, HistoryResponse, HistoryFilters, CollectionLineInfo, CollectionStats, CollectionMode, StorageSettings, BrowseResponse } from './types'
+import { InspectionConfig, InspectionLine, HistoryResponse, HistoryFilters, CollectionLineInfo, CollectionStats, CollectionMode, StorageSettings, BrowseResponse, GpuInfo } from './types'
 import { API_BASE as BASE } from './config'
 
 export async function fetchLines(): Promise<InspectionLine[]> {
@@ -309,4 +309,65 @@ export async function updateLayoutSettings(layout: Record<string, any>): Promise
     body: JSON.stringify(layout),
   })
   if (!res.ok) throw new Error(await res.text())
+}
+
+// ── System Info ──────────────────────────────────────────────
+
+export interface FileBrowseItem {
+  name: string
+  path: string
+  is_dir: boolean
+}
+
+export interface FileBrowseResponse {
+  current: string
+  parent: string
+  items: FileBrowseItem[]
+}
+
+export async function browseFiles(path: string = '', extensions: string = ''): Promise<FileBrowseResponse> {
+  const qs = new URLSearchParams()
+  if (path) qs.set('path', path)
+  if (extensions) qs.set('extensions', extensions)
+  const res = await fetch(`${BASE}/api/system/browse-files?${qs.toString()}`)
+  if (!res.ok) throw new Error(await res.text())
+  return res.json()
+}
+
+export async function parseYaml(path: string, lineName?: string): Promise<{ names: Record<string, string>; nc: number }> {
+  const res = await fetch(`${BASE}/api/system/parse-yaml`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ path, line_name: lineName ?? '' }),
+  })
+  if (!res.ok) throw new Error(await res.text())
+  return res.json()
+}
+
+export async function updateThresholds(lineName: string, product: string, classThresholds: Record<string, number>): Promise<void> {
+  const res = await fetch(`${BASE}/api/lines/${encodeURIComponent(lineName)}/thresholds`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ product, class_thresholds: classThresholds }),
+  })
+  if (!res.ok) throw new Error(await res.text())
+}
+
+export async function manualReject(lineName: string): Promise<void> {
+  const res = await fetch(`${BASE}/api/lines/${encodeURIComponent(lineName)}/manual-reject`, { method: 'POST' })
+  if (!res.ok) throw new Error(await res.text())
+}
+
+export async function captureFrame(lineName: string): Promise<string> {
+  const res = await fetch(`${BASE}/api/lines/${encodeURIComponent(lineName)}/capture-frame`)
+  if (!res.ok) throw new Error(await res.text())
+  const blob = await res.blob()
+  return URL.createObjectURL(blob)
+}
+
+export async function fetchGpus(): Promise<GpuInfo[]> {
+  const res = await fetch(`${BASE}/api/system/gpus`)
+  if (!res.ok) return []
+  const data = await res.json()
+  return data.gpus ?? []
 }

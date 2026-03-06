@@ -77,6 +77,7 @@ class Rejecter:
         time_valve_on: float = 0.1,
         pre_valve_delay: float = 0.25,
         reject_positions: int = 1,
+        reject_mode: str = "individual",
     ):
         """
         Parameters
@@ -87,27 +88,40 @@ class Rejecter:
         reject_positions     : window[-N:] 범위 크기.
                                1 = 맨 뒤 1칸만 체크 (기본, 1번 발사)
                                3 = 뒤 3칸 체크 (최대 3번 발사)
+        reject_mode          : 리젝트 발사 방식.
+                               "individual" = 각 위치마다 독립적으로 발사 (기존 동작)
+                               "continuous" = 첫 번째 위치에서만 발사,
+                                              time_valve_on × reject_positions 초 동안 연속 ON
         time_valve_on        : 밸브 열림 지속 시간 [초] (예: 0.1, 0.2, 0.3).
+                               continuous 모드에서는 이 값 × reject_positions = 총 ON 시간.
         pre_valve_delay       : 신호 발생 직전 추가 대기 시간 [초].
                                에어건 등 기계 응답 지연 보상에 사용합니다.
         """
         self.camera = camera
         self.reject_delay_frames = reject_delay_frames
         self.reject_positions = reject_positions
+        self.reject_mode = reject_mode
         self.time_valve_on = time_valve_on
         self.pre_valve_delay = pre_valve_delay
 
         # 슬라이딩 윈도우: 0으로 초기화, maxlen으로 크기 고정
+        # maxlen = delay_frames + 1: position -1이 정확히 delay_frames번 shift 후 발사되도록 보정
         self._window: deque = deque(
-            [0] * reject_delay_frames, maxlen=reject_delay_frames
+            [0] * (reject_delay_frames + 1), maxlen=reject_delay_frames + 1
         )
-        # warm-up: delay_frames만큼 실제 데이터가 쌓인 후부터 체크
+        # warm-up: delay_frames+1만큼 실제 데이터가 쌓인 후부터 체크
         self._push_count: int = 0
 
         self._lock = threading.Lock()
         self._firing_positions: set = set()  # 현재 발사 중인 인덱스 집합
         self._fire_lock = threading.Lock()   # I/O 신호 ON/OFF 경쟁 조건 방지
         self._active_fires: int = 0          # 현재 발사 중인 스레드 수
+
+        # continuous 모드: burst ON/OFF 동기화용 이벤트
+        # _burst_on 스레드가 set() → _burst_off 스레드가 wait() 후 OFF 예약
+        self._burst_on_event = threading.Event()
+        # continuous 모드 safety watchdog: _burst_off 완료 신호
+        self._burst_off_event = threading.Event()
 
     # ------------------------------------------------------------------
     # 공개 메서드 (Public Methods)
@@ -138,18 +152,50 @@ class Rejecter:
             if is_defect:
                 self._window[insert_position] = 1
 
-            # 3. warm-up: delay_frames 이전에는 체크하지 않음
-            if self._push_count < self.reject_delay_frames:
+            # 3. warm-up: delay_frames+1 이전에는 체크하지 않음
+            if self._push_count < self.reject_delay_frames + 1:
                 return fired
 
-            # 4. window[-N:] 범위의 각 인덱스 체크 — 각각 독립 발사
-            for i in range(-self.reject_positions, 0):
-                if self._window[i] == 1 and i not in self._firing_positions:
-                    self._firing_positions.add(i)
-                    fired.append(i)
-                    threading.Thread(
-                        target=self._fire_reject, args=(i,), daemon=True
-                    ).start()
+            # 4. window[-N:] 범위 체크 — 모드에 따라 발사 방식 결정
+            if self.reject_mode == "continuous" and self.reject_positions > 1:
+                # ── 연속(Burst) 모드 ───────────────────────────────────────
+                # 위치 -N (첫 번째): pre_valve_delay 후 밸브 ON
+                # 위치 -2 ~ -(N-1) (중간): 아무것도 하지 않음 (밸브 이미 ON)
+                # 위치 -1 (마지막): time_valve_on 후 밸브 OFF
+                #
+                # 타이밍 예시 (reject_positions=3, 프레임 7·8·9 통과):
+                #   프레임 7 도착 → pre_valve_delay 대기 → 밸브 ON
+                #   프레임 8 도착 → 무시
+                #   프레임 9 도착 → time_valve_on 대기 → 밸브 OFF
+                first_pos = -self.reject_positions
+                last_pos  = -1
+                for i in range(first_pos, 0):
+                    if self._window[i] == 1:
+                        if i == first_pos and first_pos not in self._firing_positions:
+                            self._firing_positions.add(first_pos)
+                            fired.append(first_pos)
+                            self._burst_on_event.clear()   # 이전 burst 이벤트 초기화
+                            self._burst_off_event.clear()  # safety watchdog 이벤트 초기화
+                            threading.Thread(
+                                target=self._burst_on, args=(first_pos,), daemon=True
+                            ).start()
+                        elif i == last_pos and last_pos not in self._firing_positions:
+                            self._firing_positions.add(last_pos)
+                            fired.append(last_pos)
+                            threading.Thread(
+                                target=self._burst_off, args=(last_pos,), daemon=True
+                            ).start()
+                        # 중간 위치: 밸브 이미 ON 상태이므로 아무것도 하지 않음
+            else:
+                # ── 개별(Individual) 모드 / positions=1 ─────────────────
+                # 각 위치마다 독립적으로 발사 (기존 동작)
+                for i in range(-self.reject_positions, 0):
+                    if self._window[i] == 1 and i not in self._firing_positions:
+                        self._firing_positions.add(i)
+                        fired.append(i)
+                        threading.Thread(
+                            target=self._fire_reject, args=(i,), daemon=True
+                        ).start()
 
         return fired
 
@@ -157,12 +203,14 @@ class Rejecter:
         """윈도우와 리젝트 상태를 초기화합니다. 라인 정지/재시작 시 호출하세요."""
         with self._lock:
             self._window = deque(
-                [0] * self.reject_delay_frames, maxlen=self.reject_delay_frames
+                [0] * (self.reject_delay_frames + 1), maxlen=self.reject_delay_frames + 1
             )
             self._push_count = 0
             self._firing_positions = set()
         with self._fire_lock:
             self._active_fires = 0
+        self._burst_on_event.clear()
+        self._burst_off_event.clear()
         self.camera.set_reject_output(False)
         print("[Rejecter] Window reset.")
 
@@ -176,25 +224,84 @@ class Rejecter:
     # 내부 메서드 (Internal Methods)
     # ------------------------------------------------------------------
 
-    def _fire_reject(self, idx: int):
+    def _fire_reject(self, idx: int, duration: float = None):
         """별도 스레드에서 리젝트 신호를 ON → 대기 → OFF 합니다.
 
         카운터 방식으로 경쟁 조건을 방지합니다:
         - 여러 스레드가 동시에 ON을 요청해도 신호는 한 번만 ON 됩니다.
         - 마지막 스레드가 끝날 때만 OFF 하므로 중간에 끊기지 않습니다.
+
+        Parameters
+        ----------
+        idx      : 슬라이딩 윈도우 인덱스 (로그/추적용)
+        duration : 밸브 ON 지속 시간 [초]. None이면 self.time_valve_on 사용.
         """
+        on_time = duration if duration is not None else self.time_valve_on
         try:
             time.sleep(self.pre_valve_delay)   # 기계 응답 딜레이 보상
             with self._fire_lock:
                 self._active_fires += 1
                 self.camera.set_reject_output(True)
-            print(f"[Rejecter] REJECT ON (idx={idx}, {self.time_valve_on}s)")
-            time.sleep(self.time_valve_on)  # 밸브 열림 지속 시간
+            print(f"[Rejecter] REJECT ON (idx={idx}, {on_time:.3f}s)")
+            time.sleep(on_time)  # 밸브 열림 지속 시간
         finally:
             with self._fire_lock:
                 self._active_fires -= 1
                 if self._active_fires == 0:
                     self.camera.set_reject_output(False)
                     print(f"[Rejecter] REJECT OFF (idx={idx})")
+            with self._lock:
+                self._firing_positions.discard(idx)
+
+    def _burst_on(self, idx: int):
+        """연속 모드 첫 번째 위치: pre_valve_delay 후 밸브 ON.
+
+        _burst_off 스레드는 이 스레드가 ON을 완료했다는 이벤트(_burst_on_event)를
+        기다린 뒤 time_valve_on 후 밸브 OFF를 수행합니다.
+
+        Safety: _burst_off가 5초 내에 밸브를 끄지 않으면 강제로 OFF합니다.
+        (마지막 위치 신호가 유실된 경우 대비)
+        """
+        valve_on_success = False
+        try:
+            time.sleep(self.pre_valve_delay)
+            with self._fire_lock:
+                self._active_fires += 1
+                self.camera.set_reject_output(True)
+            valve_on_success = True
+            print(f"[Rejecter] BURST ON  (first_pos={idx}, pre_delay={self.pre_valve_delay}s)")
+        finally:
+            self._burst_on_event.set()   # OFF 스레드에게 "ON 완료" 신호
+            with self._lock:
+                self._firing_positions.discard(idx)
+
+        # Safety watchdog: _burst_off가 5초 내에 밸브를 끄지 않으면 강제 OFF
+        if valve_on_success and not self._burst_off_event.wait(timeout=5.0):
+            with self._fire_lock:
+                if self._active_fires > 0:
+                    self._active_fires -= 1
+                if self._active_fires == 0:
+                    self.camera.set_reject_output(False)
+                    print(f"[Rejecter] BURST SAFETY TIMEOUT — valve forced OFF after 5s")
+
+    def _burst_off(self, idx: int):
+        """연속 모드 마지막 위치: ON 완료 대기 후 time_valve_on 초 뒤 밸브 OFF.
+
+        타이밍 (예: positions=3, 프레임 7·8·9):
+            t_frame7 + pre_valve_delay  → 밸브 ON  (_burst_on)
+            t_frame9 + [ON 완료 대기] + time_valve_on → 밸브 OFF (_burst_off)
+        """
+        try:
+            # _burst_on이 실제로 밸브를 켤 때까지 대기
+            # (pre_valve_delay + 여유 1s 이내에 반드시 완료됨)
+            self._burst_on_event.wait(timeout=self.pre_valve_delay + 1.0)
+            time.sleep(self.time_valve_on)
+        finally:
+            with self._fire_lock:
+                self._active_fires -= 1
+                if self._active_fires == 0:
+                    self.camera.set_reject_output(False)
+                    print(f"[Rejecter] BURST OFF (last_pos={idx}, valve_on={self.time_valve_on}s)")
+            self._burst_off_event.set()   # safety watchdog에게 "OFF 완료" 신호
             with self._lock:
                 self._firing_positions.discard(idx)

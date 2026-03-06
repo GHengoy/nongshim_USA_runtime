@@ -50,9 +50,11 @@ _ROTATION_CV2_TO_STR = {v: k for k, v in _ROTATION_STR_TO_CV2.items()}
 # 제품 레벨 필드: 제품마다 개별 값을 가지는 설정 (라인 레벨 필드와 구분)
 PRODUCT_LEVEL_FIELDS = {
     'mode', 'rotation', 'crop_region', 'model_path', 'class_thresholds',
-    'save_thresholds', 'device', 'reject_delay_frames', 'reject_positions',
-    'time_valve_on', 'pre_valve_delay', 'save_root', 'retention_days',
-    'max_preview', 'save_normal', 'detector_type', 'detector_config',
+    'save_thresholds', 'device', 'reject_delay_frames', 'reject_delay_seconds',
+    'reject_positions', 'reject_mode', 'time_valve_on', 'pre_valve_delay',
+    'trigger_delay_us', 'trigger_debounce_us', 'save_root', 'retention_days', 'max_preview',
+    'save_normal', 'detector_type', 'detector_config', 'show_threshold',
+    'data_yaml',
 }
 
 
@@ -98,6 +100,7 @@ class InspectionConfig:
     camera_type:  str = "basler"            # "basler" | "webcam"
     camera_ip:   str = "192.168.1.10"   # Basler: IP 주소 / Webcam: 인덱스 문자열("0","1",...)
     pfs_file:    str = "camera.pfs"
+    collection_mode: str = "auto"           # auto | trigger | continuous (검사·수집 공용)
     rotation:    Optional[int]       = None          # cv2.ROTATE_* 또는 None
     crop_region: Optional[List[int]] = None          # [x1, y1, x2, y2]
 
@@ -106,16 +109,22 @@ class InspectionConfig:
     detector_config: Optional[Dict] = None         # 감지기별 추가 설정
 
     # AI 모델
+    data_yaml:        str = "./weights/data.yaml"      # YOLO data.yaml 파일 경로
     model_path:       str = "./weights/best.pt"
     class_thresholds: Optional[Dict[str, float]] = None  # {"defect": 0.70, ...}
     save_thresholds:  Optional[Dict[str, float]] = None  # {"defect": 0.30, ...}
+    show_threshold:   float = 0.3                       # 대시보드 표시 임계값 (리젝트 무관)
     device:           str = "cuda"
 
     # 리젝트
-    reject_delay_frames: int   = 10
-    reject_positions:    int   = 1
-    time_valve_on:       float = 0.1
-    pre_valve_delay:     float = 0.25
+    reject_delay_frames:   int            = 10
+    reject_delay_seconds:  Optional[float] = None   # 연속 카메라 모드 전용 (초 단위 딜레이)
+    reject_positions:      int            = 1
+    reject_mode:           str            = "individual"   # "individual" | "continuous"
+    time_valve_on:         float          = 0.1
+    pre_valve_delay:       float          = 0.25
+    trigger_delay_us:      Optional[float] = None   # 트리거 모드 전용: 센서 인식 후 촬영 딜레이 [µs]
+    trigger_debounce_us:   Optional[float] = None   # 트리거 노이즈 제거: LineDebouncerHighTime [µs]
 
     # 데이터 저장
     save_root:      str  = "./data"
