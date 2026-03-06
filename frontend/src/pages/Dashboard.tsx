@@ -103,7 +103,11 @@ export default function Dashboard() {
         const serverLayout = await api.fetchLayoutSettings()
         if (serverLayout && Object.keys(serverLayout).length > 0) {
           const layoutArray = Object.values(serverLayout) as LayoutItem[]
-          setLayout(layoutArray.map(item => ({ minW: 3, minH: 3, ...item })))
+          setLayout(layoutArray.map(item => ({
+            minW: 3, minH: 3, ...item,
+            w: Math.max(item.w ?? 4, 3),
+            h: Math.max(item.h ?? 4, 3),
+          })))
         }
       } catch {
         // 백엔드 실패 시 localStorage 사용 (이미 초기화됨)
