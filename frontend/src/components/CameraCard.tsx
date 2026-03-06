@@ -394,7 +394,7 @@ export default function CameraCard({ line, onToggle, onSettings, onSwitchProduct
                   </svg>
                 </button>
                 {showProductDropdown && (
-                  <div className="absolute top-full right-0 mt-1 z-20 bg-gray-800 border border-gray-700 rounded-lg shadow-xl py-1 min-w-[140px]">
+                  <div className="absolute bottom-full right-0 mb-1 z-20 bg-gray-800 border border-gray-700 rounded-lg shadow-xl py-1 min-w-[140px] max-h-60 overflow-y-auto">
                     {Object.keys(config.products).map(pName => (
                       <button
                         key={pName}
