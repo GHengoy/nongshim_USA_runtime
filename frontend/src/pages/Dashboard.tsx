@@ -113,7 +113,7 @@ export default function Dashboard() {
   }, [])
 
   // 레이아웃 변경 시 백엔드에 저장 (throttled)
-  const saveLayoutRef = useRef<NodeJS.Timeout>()
+  const saveLayoutRef = useRef<ReturnType<typeof setTimeout>>()
   const saveLayoutToBackend = useCallback((newLayout: LayoutItem[]) => {
     if (saveLayoutRef.current) clearTimeout(saveLayoutRef.current)
     saveLayoutRef.current = setTimeout(() => {

@@ -26,6 +26,6 @@ export const API_BASE = (() => {
  * http://localhost:8000 → ws://localhost:8000
  * https://example.com → wss://example.com
  */
-export const WS_BASE = API_BASE.replace(/^https?/, (match) =>
+export const WS_BASE = API_BASE.replace(/^https?/, (match: string) =>
   match === 'https' ? 'wss' : 'ws'
 )

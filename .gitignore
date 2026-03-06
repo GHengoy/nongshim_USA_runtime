@@ -2,7 +2,6 @@
 __pycache__/
 *.py[oc]
 build/
-dist/
 wheels/
 *.egg-info
 
@@ -26,7 +25,9 @@ weights/
 
 # Node.js
 node_modules/
-dist/
+
+# Python dist (setup.py 빌드 산출물)
+# frontend/dist/ 는 포함 (빌드된 React 앱 — 다른 PC에서 npm 없이 바로 사용)
 
 # Project-specific
 only_image/
